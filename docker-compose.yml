@@ -32,13 +32,9 @@ services:
     volumes:
       - customers-data:/var/lib/postgresql/data
 
-  discovery-service:
-    build: ./discovery-service
-    ports:
-      - "8761:8761"
-
   product-service:
     build: ./product-service
+    container_name: product-service
     ports:
       - "8081:8081"
     depends_on:
@@ -47,10 +43,10 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://products-db:5432/products
       SPRING_DATASOURCE_USERNAME: product
       SPRING_DATASOURCE_PASSWORD: product123
-      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-service:8761/eureka/
 
   order-service:
     build: ./order-service
+    container_name: order-service
     ports:
       - "8082:8082"
     depends_on:
@@ -59,10 +55,10 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://orders-db:5432/orders
       SPRING_DATASOURCE_USERNAME: order
       SPRING_DATASOURCE_PASSWORD: order123
-      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-service:8761/eureka/
 
   customer-service:
     build: ./customer-service
+    container_name: customer-service
     ports:
       - "8083:8083"
     depends_on:
@@ -71,10 +67,10 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://customers-db:5432/customers
       SPRING_DATASOURCE_USERNAME: customer
       SPRING_DATASOURCE_PASSWORD: customer123
-      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-service:8761/eureka/
 
   keycloak:
     image: docker.io/keycloak/keycloak:25.0.0
+    container_name: keycloak
     command: start-dev --import-realm --health-enabled=true
     ports:
       - "9001:8080"
@@ -88,12 +84,20 @@ services:
 
   gateway-service:
     build: ./gateway-service
+    container_name: gateway-service
     ports:
-      - "9000:8080"
+      - "9000:9000"
     depends_on:
-      - discovery-service
+      - keycloak
+      - product-service
+      - order-service
+      - customer-service
     environment:
-      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-service:8761/eureka/
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://keycloak:8080/realms/textileco
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/textileco/protocol/openid-connect/certs
+      PRODUCT_SERVICE_URI: http://product-service:8081
+      ORDER_SERVICE_URI: http://order-service:8082
+      CUSTOMER_SERVICE_URI: http://customer-service:8083
 
 volumes:
   products-data:
