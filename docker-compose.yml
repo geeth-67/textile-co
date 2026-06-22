@@ -1,0 +1,146 @@
+services:
+  products-db:
+    image: postgres:17-alpine
+    container_name: products-db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: products
+      POSTGRES_USER: textileco
+      POSTGRES_PASSWORD: textileco123
+    volumes:
+      - products-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U textileco -d products"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  orders-db:
+    image: postgres:17-alpine
+    container_name: orders-db
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: orders
+      POSTGRES_USER: textileco
+      POSTGRES_PASSWORD: textileco123
+    volumes:
+      - orders-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U textileco -d orders"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  customers-db:
+    image: postgres:17-alpine
+    container_name: customers-db
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_DB: customers
+      POSTGRES_USER: textileco
+      POSTGRES_PASSWORD: textileco123
+    volumes:
+      - customers-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U textileco -d customers"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0.0
+    container_name: keycloak
+    command: start-dev --import-realm --health-enabled=true
+    ports:
+      - "9001:8080"
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+
+  keycloak-init:
+    image: quay.io/keycloak/keycloak:25.0.0
+    container_name: keycloak-init
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        /opt/keycloak/bin/kcadm.sh config credentials --server http://keycloak:8080 --realm master --user admin --password admin
+        /opt/keycloak/bin/kcadm.sh set-password -r textileco --username admin --new-password admin123
+        echo "TextileCo admin password set to admin123"
+    restart: "no"
+
+  product-service:
+    build: ./product-service
+    container_name: product-service
+    ports:
+      - "8081:8081"
+    depends_on:
+      products-db:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://products-db:5432/products
+      SPRING_DATASOURCE_USERNAME: textileco
+      SPRING_DATASOURCE_PASSWORD: textileco123
+
+  order-service:
+    build: ./order-service
+    container_name: order-service
+    ports:
+      - "8082:8082"
+    depends_on:
+      orders-db:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://orders-db:5432/orders
+      SPRING_DATASOURCE_USERNAME: textileco
+      SPRING_DATASOURCE_PASSWORD: textileco123
+
+  customer-service:
+    build: ./customer-service
+    container_name: customer-service
+    ports:
+      - "8083:8083"
+    depends_on:
+      customers-db:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://customers-db:5432/customers
+      SPRING_DATASOURCE_USERNAME: textileco
+      SPRING_DATASOURCE_PASSWORD: textileco123
+
+  api-gateway:
+    build: ./api-gateway
+    container_name: api-gateway
+    ports:
+      - "9000:9000"
+    depends_on:
+      - keycloak
+      - product-service
+      - order-service
+      - customer-service
+    environment:
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://keycloak:8080/realms/textileco
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/textileco/protocol/openid-connect/certs
+      PRODUCT_SERVICE_URI: http://product-service:8081
+      ORDER_SERVICE_URI: http://order-service:8082
+      CUSTOMER_SERVICE_URI: http://customer-service:8083
+
+volumes:
+  products-data:
+  orders-data:
+  customers-data:
